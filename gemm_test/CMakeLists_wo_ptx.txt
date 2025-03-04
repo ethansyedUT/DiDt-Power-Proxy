@@ -1,0 +1,24 @@
+cmake_minimum_required(VERSION 3.18)
+project(tf32_gemm_example LANGUAGES CXX CUDA)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+# Set the CUDA architecture for Ampere (e.g., sm_80)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_80")
+
+# Include CUTLASS headers and additional utility headers
+include_directories(
+  /home/jiang2000/workspace/cutlass/include
+  /home/jiang2000/workspace/cutlass/tools/util/include
+  /home/jiang2000/workspace/cutlass/examples/common
+)
+
+# Define the executable target for your example
+add_executable(tf32_gemm ampere_tf32_tensorop_gemm.cu)
+
+# Remove this line if you are not building or linking a CUTLASS library:
+# target_link_libraries(tf32_gemm PRIVATE CUTLASS)
+

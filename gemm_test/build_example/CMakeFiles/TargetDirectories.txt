@@ -1,0 +1,4 @@
+/home/jiang2000/workspace/DiDt-Power-Proxy/gemm_test/build/CMakeFiles/tf32_gemm.dir
+/home/jiang2000/workspace/DiDt-Power-Proxy/gemm_test/build/CMakeFiles/generate_ptx.dir
+/home/jiang2000/workspace/DiDt-Power-Proxy/gemm_test/build/CMakeFiles/edit_cache.dir
+/home/jiang2000/workspace/DiDt-Power-Proxy/gemm_test/build/CMakeFiles/rebuild_cache.dir
