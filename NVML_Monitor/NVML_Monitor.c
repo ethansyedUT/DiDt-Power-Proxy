@@ -2,11 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
 #include <time.h>
-#include <direct.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <unistd.h>     // for usleep
+#include <sys/stat.h>   // for mkdir
 
 #define CHECK_NVML(call) \
 do { \
@@ -30,38 +30,40 @@ typedef struct {
 } ProcessFiles;
 
 typedef struct {
-    DWORD samplingIntervalMs;
-    LARGE_INTEGER performanceFrequency;
-    LARGE_INTEGER lastSampleTime;
+    unsigned int samplingIntervalMs;
+    struct timespec lastSampleTime;
     ProcessFiles processes[MAX_PROCESSES];
     int processCount;
 } MonitorConfig;
 
 void getTimeString(char* buffer, size_t size) {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    snprintf(buffer, size, "%04d-%02d-%02d_%02d-%02d-%02d.%03d",
-        st.wYear, st.wMonth, st.wDay,
-        st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    struct timespec ts;
+    struct tm tm_info;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    localtime_r(&ts.tv_sec, &tm_info);
+    // Format: YYYY-MM-DD_HH-MM-SS.mmm
+    snprintf(buffer, size, "%04d-%02d-%02d_%02d-%02d-%02d.%03ld",
+        tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday,
+        tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec, ts.tv_nsec / 1000000);
 }
 
 void printMemorySize(FILE* file, unsigned long long bytes) {
     if (bytes == 18446744073709551615ULL) {
         fprintf(file, "Unknown");
-    }
-    else {
+    } else {
         fprintf(file, "%llu bytes (%.2f MB)", bytes, bytes / (1024.0 * 1024.0));
     }
 }
 
-double getElapsedMs(const LARGE_INTEGER* start, const LARGE_INTEGER* end, const LARGE_INTEGER* freq) {
-    LARGE_INTEGER elapsed;
-    elapsed.QuadPart = end->QuadPart - start->QuadPart;
-    return (elapsed.QuadPart * 1000.0) / freq->QuadPart;
+double getElapsedMs(const struct timespec* start, const struct timespec* end) {
+    long seconds = end->tv_sec - start->tv_sec;
+    long nanoseconds = end->tv_nsec - start->tv_nsec;
+    double elapsed = seconds * 1000.0 + nanoseconds / 1e6;
+    return elapsed;
 }
 
 int createDirectoryIfNotExists(const char* path) {
-    int result = _mkdir(path);
+    int result = mkdir(path, 0755);
     if (result != 0 && errno != EEXIST) {
         printf("Error creating directory %s. Error code: %d\n", path, errno);
         return -1;
@@ -73,19 +75,18 @@ void initProcessFiles(ProcessFiles* proc, unsigned int pid) {
     char filename[256];
 
     // Create power trace file
-    sprintf_s(filename, sizeof(filename), "logs/PowerTraces/%u_PowerTrace.csv", pid);
-    fopen_s(&proc->powerFile, filename, "w");
+    snprintf(filename, sizeof(filename), "logs/PowerTraces/%u_PowerTrace.csv", pid);
+    proc->powerFile = fopen(filename, "w");
     if (proc->powerFile) fprintf(proc->powerFile, "Timestamp,PowerUsage_mW\n");
 
     // Create memory usage file
-    sprintf_s(filename, sizeof(filename), "logs/MemoryUsageTraces/%u_MemoryUsage.csv", pid);
-    fopen_s(&proc->memoryFile, filename, "w");
+    snprintf(filename, sizeof(filename), "logs/MemoryUsageTraces/%u_MemoryUsage.csv", pid);
+    proc->memoryFile = fopen(filename, "w");
     if (proc->memoryFile) fprintf(proc->memoryFile, "Timestamp,MemoryUsed_MB,TotalMemory_MB,MemoryUtilization_Percent\n");
-    // if (proc->memoryFile) fprintf(proc->memoryFile, "Timestamp,ProcessMemoryUsed_MB,TotalMemory_MB,ProcessMemoryUtilization_Percent\n");
 
     // Create time log file
-    sprintf_s(filename, sizeof(filename), "logs/SamplingTiming/%u_TimeLog.csv", pid);
-    fopen_s(&proc->timeFile, filename, "w");
+    snprintf(filename, sizeof(filename), "logs/SamplingTiming/%u_TimeLog.csv", pid);
+    proc->timeFile = fopen(filename, "w");
     if (proc->timeFile) fprintf(proc->timeFile, "Timestamp,SampleInterval_ms,Temperature_C,GPUUtilization_Percent\n");
 
     proc->pid = pid;
@@ -120,41 +121,31 @@ ProcessFiles* findOrCreateProcessEntry(MonitorConfig* config, unsigned int pid) 
 int main(int argc, char* argv[]) {
     nvmlDevice_t device;
     char name[NVML_DEVICE_NAME_BUFFER_SIZE];
-    char timeStr[26];
+    char timeStr[32];
     FILE* logFile;
 
     // Initialize monitoring configuration
-    MonitorConfig config = { 0 };
+    MonitorConfig config = {0};
     config.samplingIntervalMs = (argc > 1) ? atoi(argv[1]) : 1;
-    QueryPerformanceFrequency(&config.performanceFrequency);
 
     if (config.samplingIntervalMs < 1) {
         printf("Warning: Sampling interval too low. Setting to 1ms minimum.\n");
         config.samplingIntervalMs = 1;
     }
 
-    if (_mkdir("logs") != 0 && errno != EEXIST) {
-        printf("Error creating logs directory. Error code: %d\n", errno);
-        return -1;
-    }
-
-        // Create main logs directory
+    // Create main logs directory and subdirectories
     if (createDirectoryIfNotExists("logs") != 0) {
         printf("Error creating main logs directory\n");
         return -1;
     }
-
-    // Create subdirectories for specific log types
     if (createDirectoryIfNotExists("logs/PowerTraces") != 0) {
         printf("Error creating PowerTraces directory\n");
         return -1;
     }
-
     if (createDirectoryIfNotExists("logs/MemoryUsageTraces") != 0) {
         printf("Error creating MemoryUsageTraces directory\n");
         return -1;
     }
-
     if (createDirectoryIfNotExists("logs/SamplingTiming") != 0) {
         printf("Error creating SamplingTiming directory\n");
         return -1;
@@ -162,21 +153,19 @@ int main(int argc, char* argv[]) {
 
     getTimeString(timeStr, sizeof(timeStr));
     char filename[256];
-    sprintf_s(filename, sizeof(filename), "logs/gpu_monitor_%s.log", timeStr);
+    snprintf(filename, sizeof(filename), "logs/gpu_monitor_%s.log", timeStr);
 
-    errno_t err = fopen_s(&logFile, filename, "w");
-    if (err != 0 || logFile == NULL) {
-        char errMsg[100];
-        strerror_s(errMsg, sizeof(errMsg), err);
-        printf("Error opening log file: %s\nAttempted path: %s\n", errMsg, filename);
+    logFile = fopen(filename, "w");
+    if (logFile == NULL) {
+        printf("Error opening log file: %s\nAttempted path: %s\n", strerror(errno), filename);
         return -1;
     }
 
     printf("Initializing NVIDIA GPU monitor...\n");
     printf("Logging to file: %s\n", filename);
-    printf("Sampling interval: %lu ms\n", config.samplingIntervalMs);
+    printf("Sampling interval: %u ms\n", config.samplingIntervalMs);
     fprintf(logFile, "Initializing NVIDIA GPU monitor...\n");
-    fprintf(logFile, "Sampling interval: %lu ms\n", config.samplingIntervalMs);
+    fprintf(logFile, "Sampling interval: %u ms\n", config.samplingIntervalMs);
 
     CHECK_NVML(nvmlInit());
     CHECK_NVML(nvmlDeviceGetHandleByIndex(0, &device));
@@ -188,13 +177,13 @@ int main(int argc, char* argv[]) {
     fflush(logFile);
 
     bool hadProcess = false;
-    QueryPerformanceCounter(&config.lastSampleTime);
+    clock_gettime(CLOCK_MONOTONIC, &config.lastSampleTime);
 
     while (1) {
-        LARGE_INTEGER currentTime;
-        QueryPerformanceCounter(&currentTime);
+        struct timespec currentTime;
+        clock_gettime(CLOCK_MONOTONIC, &currentTime);
 
-        double elapsedMs = getElapsedMs(&config.lastSampleTime, &currentTime, &config.performanceFrequency);
+        double elapsedMs = getElapsedMs(&config.lastSampleTime, &currentTime);
 
         if (elapsedMs >= config.samplingIntervalMs) {
             getTimeString(timeStr, sizeof(timeStr));
@@ -216,7 +205,6 @@ int main(int argc, char* argv[]) {
                     fprintf(logFile, "----------------------------------------");
                     fail_read = true;
                 }
-
 
                 nvmlUtilization_t utilInfo;
                 result = nvmlDeviceGetUtilizationRates(device, &utilInfo);
@@ -246,7 +234,7 @@ int main(int argc, char* argv[]) {
                     fprintf(logFile, "----------------------------------------");
                     fail_read = true;
                 }
-                if(!fail_read){
+                if (!fail_read) {
                     // Write to verbose log
                     fprintf(logFile, "----------------------------------------\n");
                     fprintf(logFile, "Timestamp: %s (Sample interval: %.2f ms)\n", timeStr, elapsedMs);
@@ -291,8 +279,7 @@ int main(int argc, char* argv[]) {
                     hadProcess = true;
                     fflush(logFile);
                 }
-            }
-            else if (hadProcess) {
+            } else if (hadProcess) {
                 fprintf(logFile, "----------------------------------------\n");
                 fprintf(logFile, "Timestamp: %s\n", timeStr);
                 fprintf(logFile, "No active CUDA processes. Waiting for new processes...\n");
@@ -308,9 +295,8 @@ int main(int argc, char* argv[]) {
             }
 
             config.lastSampleTime = currentTime;
-            Sleep(100);
+            usleep(100000); // sleep for 100 ms
         }
-
     }
 
     // Cleanup

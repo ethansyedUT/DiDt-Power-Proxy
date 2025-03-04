@@ -47,6 +47,6 @@ add_custom_command(
   COMMENT "Generating PTX file..."
 )
 
-# Create a custom target that depends on the generated PTX file.
+# Create a custom target that depends on the generated PTX file
 #### make sure the file name is consistent ####
 add_custom_target(generate_ptx ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/ampere_tf32_tensorop_gemm.ptx)

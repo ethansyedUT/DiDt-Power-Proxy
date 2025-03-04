@@ -1,8 +1,8 @@
 CC = nvcc
-CFLAGS = -lnvml
+CFLAGS = -lnvidia-ml
 TARGET = NVML_Monitor
 SRC = NVML_Monitor.c
-OS = windows
+OS = linux
 LOG_DIR = logs
 
 ifeq ($(OS),windows)
