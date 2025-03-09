@@ -7,6 +7,9 @@
 #include <pthread.h>
 #include <nvml.h>
 
+
+#define NVML_FI_DEV_POWER_INSTANT 186
+
 #define CHECK_NVML(call) \
     do { \
         nvmlReturn_t result = call; \
@@ -65,10 +68,25 @@ void* monitor_gpu(void* arg) {
     while (keep_running && !ctx->should_stop) {
         unsigned long long current_time = get_timestamp_us();
         double elapsed_seconds = (current_time - start_time) / 1000000.0;
-        
-        // Power usage in milliwatts
-        unsigned int power;
-        CHECK_NVML(nvmlDeviceGetPowerUsage(device, &power));
+
+        // // Replace this:
+        // // Power usage in milliwatts
+        // unsigned int power;
+        // CHECK_NVML(nvmlDeviceGetPowerUsage(device, &power));
+
+        // With this:
+        // Get instant power using field value
+        unsigned int power = 0;
+        nvmlFieldValue_t fv;
+        fv.fieldId = NVML_FI_DEV_POWER_INSTANT;
+        CHECK_NVML(nvmlDeviceGetFieldValues(device, 1, &fv));
+        if (fv.nvmlReturn == NVML_SUCCESS) {
+            power = fv.value.uiVal;
+        } else {
+            // Fallback to regular power measurement if field value fails
+            fprintf(stderr, "Warning: Could not get instant power, falling back to regular measurement\n");
+            CHECK_NVML(nvmlDeviceGetPowerUsage(device, &power));
+        }
         
         // GPU and Memory utilization
         nvmlUtilization_t utilization;
