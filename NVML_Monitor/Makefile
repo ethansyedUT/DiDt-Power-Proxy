@@ -2,8 +2,9 @@ CC = nvcc
 CFLAGS = -lnvml
 TARGET = NVML_Monitor
 SRC = NVML_Monitor.c
-OS = windows
+OS = linux
 LOG_DIR = logs
+PTX_FLAGS = -O0 -Xptxas -O0 -arch=sm_80 -ptx
 
 ifeq ($(OS),windows)
     RM = del /Q /F
@@ -26,6 +27,14 @@ all: $(TARGET)
 $(TARGET): $(SRC)
 	$(CC) $(SRC) -o $(TARGET) $(CFLAGS)
 
+# Build PTX file from CUDA source
+ptx:
+	@if [ -z "$(filepath)" ]; then \
+		echo "Usage: make ptx filepath=/path/to/file.cu"; \
+	else \
+		$(CC) $(PTX_FLAGS) $(filepath); \
+	fi
+
 clean:
 	$(RM_CMD)
 
@@ -41,4 +50,4 @@ clearlogs: $(LOG_DIR)
 run: $(TARGET)
 	$(RUN_CMD)
 
-.PHONY: all clean clearlogs run
+.PHONY: all clean clearlogs run ptx
