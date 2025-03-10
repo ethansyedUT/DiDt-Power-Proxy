@@ -106,13 +106,13 @@ int main() {
     int blockSize = 1024;
     int gridSize = 640;
     
-    // printf("Running FMA.f32 microbenchmark...\n");
-    // FMA_F32_Kernel<<<gridSize, blockSize>>>(iterations);
-    // cudaDeviceSynchronize();
-    
-    printf("Running MAD.lo.u32 microbenchmark...\n");
-    MAD_U32_Kernel<<<gridSize, blockSize>>>(iterations);
+    printf("Running FMA.f32 microbenchmark...\n");
+    FMA_F32_Kernel<<<gridSize, blockSize>>>(iterations);
     cudaDeviceSynchronize();
+    
+    // printf("Running MAD.lo.u32 microbenchmark...\n");
+    // MAD_U32_Kernel<<<gridSize, blockSize>>>(iterations);
+    // cudaDeviceSynchronize();
     
     // printf("Running FMA.f64 microbenchmark...\n");
     // FMA_F64_Kernel<<<gridSize, blockSize>>>(iterations);
